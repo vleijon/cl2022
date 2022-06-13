@@ -1,0 +1,160 @@
+module vpn {
+  yang-version 1.1;
+
+  namespace "http://example.com/vpn";
+  prefix vpn;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import tailf-common {
+    prefix tailf;
+  }
+  import tailf-ncs {
+    prefix ncs;
+  }
+  import tailf-kicker {
+    prefix kicker;
+  }
+
+  description
+    "Bla bla...";
+
+  revision 2016-01-01 {
+    description
+      "Initial revision.";
+  }
+
+  container action {
+    tailf:action report {
+      tailf:actionpoint vpn-action;
+      input {
+      }
+      output {
+        leaf result {
+          type string;
+        }
+      }
+    }
+    action kick-action {
+      tailf:actionpoint kick-action;
+      input {
+        uses kicker:action-input-params;
+      }
+    }
+  }
+
+  list approval {
+    key id;
+    leaf id {
+      type string;
+    }
+
+    leaf text {
+      type string;
+      tailf:cli-preformatted;
+    }
+
+    action approve {
+      tailf:actionpoint approve;
+      input {
+        leaf comment {
+          type string;
+        }
+      }
+    }
+
+    container approval {
+      config false;
+      tailf:cdb-oper {
+        tailf:persistent true;
+      }
+      leaf approved {
+        type boolean;
+        default false;
+      }
+      leaf comment {
+        type string;
+      }
+    }
+  }
+
+  identity waiting-approval {
+    base ncs:plan-state;
+  }
+  identity approved {
+    base ncs:plan-state;
+  }
+
+  ncs:plan-outline vpn-plan {
+    ncs:self-as-service-status;
+
+    ncs:component-type "ncs:self" {
+
+      ncs:state "ncs:init";
+      ncs:state "vpn:waiting-approval" {
+        ncs:create {
+          ncs:nano-callback;
+          ncs:post-action-node "$SERVICE" {
+            ncs:action-name "request-approval";
+          }
+        }
+      }
+      ncs:state "vpn:approved" {
+        ncs:create {
+          ncs:pre-condition {
+            ncs:any {
+              ncs:monitor "/approval[id=$SERVICE/name]" {
+                ncs:trigger-expr "approval/approved  = 'true'";
+              }
+              ncs:monitor "$SERVICE" {
+                ncs:trigger-expr "override-approval = 'true'";
+              }
+            }
+          }
+          ncs:nano-callback;
+        }
+      }
+      ncs:state "ncs:ready";
+    }
+  }
+
+  ncs:service-behavior-tree vpn-servicepoint {
+    ncs:plan-outline-ref "vpn:vpn-plan";
+    ncs:selector {
+      ncs:create-component "'self'" {
+        ncs:component-type-ref "ncs:self";
+      }
+    }
+  }
+
+  list vpn {
+    action request-approval {
+      tailf:actionpoint requestapproval;
+    }
+
+    key name;
+    leaf name {
+      tailf:info "Unique service id";
+      tailf:cli-allow-range;
+      type string;
+    }
+
+    uses ncs:nano-plan-data;
+    uses ncs:service-data;
+    ncs:servicepoint vpn-servicepoint;
+
+    // may replace this with other ways of refering to the devices.
+    leaf-list device {
+      type leafref {
+        path "/ncs:devices/ncs:device/ncs:name";
+      }
+    }
+
+    leaf override-approval {
+      type boolean;
+      default "false";
+      tailf:hidden full;
+    }
+  }
+}
